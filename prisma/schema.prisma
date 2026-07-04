@@ -1,0 +1,340 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  INDUSTRIAL_COMPANY
+  STARTUP
+  ENTREPRENEUR
+  ADMIN
+}
+
+enum ListingStatus {
+  ACTIVE
+  RESERVED
+  SOLD
+  ARCHIVED
+}
+
+enum UrgencyLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum BudgetLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum RequestStatus {
+  PENDING
+  ACCEPTED
+  REFUSED
+  NEGOTIATION
+  COMPLETED
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+}
+
+enum NotificationType {
+  NEW_REQUEST
+  REQUEST_ACCEPTED
+  REQUEST_REFUSED
+  NEW_MESSAGE
+  NEW_MATCH
+  LISTING_RESERVED
+  LISTING_SOLD
+  FAVORITE_ADDED
+  TRANSACTION_COMPLETED
+}
+
+model User {
+  id              String          @id @default(cuid())
+  name            String
+  email           String          @unique
+  passwordHash    String
+  role            UserRole        @default(STARTUP)
+  profile         Profile?
+  listings        Listing[]       @relation("SellerListings")
+  materialNeeds   MaterialNeed[]
+  matches         Match[]         @relation("BuyerMatches")
+  requestsSent    Request[]       @relation("BuyerRequests")
+  requestsReceived Request[]      @relation("SellerRequests")
+  conversationsAsBuyer Conversation[] @relation("BuyerConversations")
+  conversationsAsSeller Conversation[] @relation("SellerConversations")
+  messagesSent    Message[]       @relation("MessagesSent")
+  messagesReceived Message[]      @relation("MessagesReceived")
+  favorites       Favorite[]
+  transactionsBought Transaction[] @relation("BuyerTransactions")
+  transactionsSold Transaction[]   @relation("SellerTransactions")
+  notifications   Notification[]
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+}
+
+model Profile {
+  id                  String   @id @default(cuid())
+  userId              String   @unique
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyName         String
+  sector              String
+  location            String
+  phone               String?
+  description         String?
+  offeredWasteTypes   Json     @default("[]")
+  neededMaterialTypes Json     @default("[]")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model Category {
+  id          String     @id
+  name        String
+  description String
+  materials   Material[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model Material {
+  id         String   @id
+  name       String
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  unit       String   @default("kg")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Listing {
+  id                String        @id @default(cuid())
+  title             String
+  description       String
+  materialId        String?
+  materialType      String
+  categoryId        String
+  industry          String
+  quantity          Float
+  quantityKg        Float
+  unit              String
+  pricePerUnit      Float
+  location          String
+  lat               Float
+  lng               Float
+  availability      ListingStatus @default(ACTIVE)
+  urgency           UrgencyLevel  @default(MEDIUM)
+  photos            Json          @default("[]")
+  wasteReusedKg     Float         @default(0)
+  co2ReductionKg    Float         @default(0)
+  moneySavedTnd     Float         @default(0)
+  storageAvoidedKg  Float         @default(0)
+  sellerId          String
+  seller            User          @relation("SellerListings", fields: [sellerId], references: [id], onDelete: Cascade)
+  aiAnalysis        AIAnalysis?
+  matches           Match[]
+  requests          Request[]
+  conversations     Conversation[]
+  favorites         Favorite[]
+  transactions      Transaction[]
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([categoryId])
+  @@index([materialType])
+  @@index([location])
+  @@index([availability])
+  @@index([sellerId])
+}
+
+model AIAnalysis {
+  id                  String   @id @default(cuid())
+  listingId            String   @unique
+  listing              Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  // Gemini-ready professional fields
+  detectedMaterial     String   @default("")
+  category             String   @default("")
+  qualityLevel         String   @default("")
+  riskLevel            String   @default("")
+  valorizationScore    Int      @default(0)
+  estimatedPriceMin    Float    @default(0)
+  estimatedPriceMax    Float    @default(0)
+  co2SavedKg           Float    @default(0)
+  recommendationText   String   @default("")
+
+  // Legacy UI compatibility fields
+  materialType         String
+  categoryId           String
+  possibleUses         Json     @default("[]")
+  interestedSectors    Json     @default("[]")
+  valorizationLevel    String
+  qualityRisk          String
+  estimatedPriceRange  String
+  suggestedTitle       String
+  improvedDescription  String
+  recommendation       String
+  confidenceScore      Int      @default(80)
+  source               String   @default("fallback")
+  co2ReductionKg       Float    @default(0)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model MaterialNeed {
+  id              String      @id @default(cuid())
+  ownerId          String
+  owner            User        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  name            String
+  industry        String
+  location        String
+  needs           Json        @default("[]")
+  quantityKg      Float       @default(0)
+  maxPricePerUnit Float?
+  urgency         UrgencyLevel @default(MEDIUM)
+  budgetLevel     BudgetLevel @default(MEDIUM)
+  matches         Match[]
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+}
+
+model Match {
+  id             String        @id @default(cuid())
+  listingId      String
+  listing        Listing       @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  materialNeedId String?
+  materialNeed   MaterialNeed? @relation(fields: [materialNeedId], references: [id], onDelete: SetNull)
+  buyerId        String
+  buyer          User          @relation("BuyerMatches", fields: [buyerId], references: [id], onDelete: Cascade)
+
+  // Structured matching scores for backend/API/admin use
+  score          Int           @default(0)
+  materialScore  Int           @default(0)
+  sectorScore    Int           @default(0)
+  locationScore  Int           @default(0)
+  quantityScore  Int           @default(0)
+  priceScore     Int           @default(0)
+  status         String        @default("ACTIVE")
+
+  // Legacy compatibility fields
+  scoreTotal     Int
+  badge          String
+  explanation    String
+  scorePayload   Json
+  createdAt      DateTime      @default(now())
+
+  @@index([buyerId])
+  @@index([listingId])
+}
+
+model Request {
+  id             String        @id @default(cuid())
+  listingId      String
+  listing        Listing       @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  buyerId        String
+  buyer          User          @relation("BuyerRequests", fields: [buyerId], references: [id], onDelete: Cascade)
+  sellerId       String
+  seller         User          @relation("SellerRequests", fields: [sellerId], references: [id], onDelete: Cascade)
+  message        String
+  quantityKg     Float?
+  proposedPrice  Float?
+  status         RequestStatus @default(PENDING)
+  conversation   Conversation?
+  transaction    Transaction?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([listingId])
+}
+
+model Conversation {
+  id          String    @id @default(cuid())
+  listingId   String
+  listing     Listing   @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  requestId   String?   @unique
+  request     Request?  @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  buyerId     String
+  buyer       User      @relation("BuyerConversations", fields: [buyerId], references: [id], onDelete: Cascade)
+  sellerId    String
+  seller      User      @relation("SellerConversations", fields: [sellerId], references: [id], onDelete: Cascade)
+  messages    Message[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([buyerId])
+  @@index([sellerId])
+}
+
+model Message {
+  id             String        @id @default(cuid())
+  conversationId String?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User          @relation("MessagesSent", fields: [senderId], references: [id], onDelete: Cascade)
+  receiverId     String
+  receiver       User          @relation("MessagesReceived", fields: [receiverId], references: [id], onDelete: Cascade)
+  listingId      String?
+  body           String
+  readAt         DateTime?
+  createdAt      DateTime      @default(now())
+
+  @@index([senderId])
+  @@index([receiverId])
+}
+
+model Favorite {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, listingId])
+  @@index([userId])
+}
+
+model Transaction {
+  id            String             @id @default(cuid())
+  requestId     String?            @unique
+  request       Request?           @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  listingId     String
+  listing       Listing            @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  buyerId       String
+  buyer         User               @relation("BuyerTransactions", fields: [buyerId], references: [id], onDelete: Cascade)
+  sellerId      String
+  seller        User               @relation("SellerTransactions", fields: [sellerId], references: [id], onDelete: Cascade)
+  amountTnd     Float
+  commissionTnd Float
+  status        TransactionStatus  @default(PENDING)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  @@index([buyerId])
+  @@index([sellerId])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  message   String
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  @@index([userId])
+}

@@ -1,0 +1,661 @@
+import { getCoordsForCity } from './geo'
+import { calculateListingImpact, calculatePortfolioImpact } from './impact'
+import { computeMatchScore } from './matching'
+import {
+  Category,
+  DashboardStats,
+  Listing,
+  Match,
+  Material,
+  Message,
+  Notification,
+  Project,
+  Report,
+  SavedSearch,
+  User,
+  UserRole,
+} from './types'
+
+type ListingFilters = {
+  materialType?: string
+  industry?: string
+  location?: string
+  minPrice?: number
+  maxPrice?: number
+  minQuantity?: number
+  availability?: string
+}
+
+interface DataStore {
+  users: User[]
+  categories: Category[]
+  materials: Material[]
+  listings: Listing[]
+  projects: Project[]
+  matches: Match[]
+  notifications: Notification[]
+  savedSearches: SavedSearch[]
+  messages: Message[]
+  reports: Report[]
+}
+
+const now = () => new Date().toISOString()
+
+function id(prefix: string) {
+  return `${prefix}_${Math.random().toString(36).slice(2, 10)}`
+}
+
+const baseCategories: Category[] = [
+  { id: 'plastic', name: 'Plastique', description: 'Déchets de plastique, PET, PEHD, Film' },
+  { id: 'wood', name: 'Bois', description: 'Sciure, chutes de bois, palettes' },
+  { id: 'metal', name: 'Métal', description: 'Chutes d\'acier, aluminium, cuivre' },
+  { id: 'textile', name: 'Textile', description: 'Chutes de tissus, friperie recyclée' },
+  { id: 'oil', name: 'Huiles & Fluides', description: 'Huiles usagées industrielles ou alimentaires' },
+  { id: 'organic', name: 'Matière Organique', description: 'Grignon d\'olive, coques, déchets agricoles' },
+  { id: 'paper', name: 'Papier & Carton', description: 'Carton compacté, chutes d\'imprimerie' },
+]
+
+const baseMaterials: Material[] = [
+  { id: 'mat_pet_scrap', name: 'Plastique PET', categoryId: 'plastic', unit: 'kg' },
+  { id: 'mat_plastic_film', name: 'Film Plastique (ميكة)', categoryId: 'plastic', unit: 'kg' },
+  { id: 'mat_wood_dust', name: 'Sciure de bois (نشارة)', categoryId: 'wood', unit: 'kg' },
+  { id: 'mat_wood_pallets', name: 'Palettes cassées', categoryId: 'wood', unit: 'pièce' },
+  { id: 'mat_metal_cuts', name: 'Copeaux de fer (برادة حديد)', categoryId: 'metal', unit: 'kg' },
+  { id: 'mat_copper', name: 'Déchets de Cuivre', categoryId: 'metal', unit: 'kg' },
+  { id: 'mat_textile_cut', name: 'Chutes de Tissus (شراوط)', categoryId: 'textile', unit: 'kg' },
+  { id: 'mat_used_oil', name: 'Huile Moteur Usagée', categoryId: 'oil', unit: 'L' },
+  { id: 'mat_cooking_oil', name: 'Huile de friture', categoryId: 'oil', unit: 'L' },
+  { id: 'mat_almond_shell', name: 'Coques d\'amandes (قشور لوز)', categoryId: 'organic', unit: 'Tonne' },
+  { id: 'mat_olive_pomace', name: 'Grignon d\'olive (فيتورة)', categoryId: 'organic', unit: 'Tonne' },
+  { id: 'mat_cardboard', name: 'Carton compacté', categoryId: 'paper', unit: 'kg' },
+]
+
+const adminUser: User = {
+  id: 'user_admin',
+  name: 'Admin EcoBridge',
+  email: 'admin@ecobridge.tn',
+  passwordHash: '$2a$10$PCHj/g2K22KWEmX.BuZhlOxfVNUMPFO3YU1ti1qr3B3k2uaerMsRi',
+  role: 'admin',
+  industry: 'platform',
+  location: 'Sfax',
+  createdAt: now(),
+}
+
+const seedUsers: User[] = [
+  adminUser,
+  {
+    id: 'user_pack_seller',
+    name: 'Société Sfaxienne d\'Emballage',
+    email: 'contact@sfaxemballage.tn',
+    passwordHash: adminUser.passwordHash,
+    role: 'seller',
+    industry: 'packaging',
+    location: 'Sfax',
+    createdAt: now(),
+  },
+  {
+    id: 'user_wood_buyer',
+    name: 'Meubles Ksar Hellal',
+    email: 'achats@meublesksar.tn',
+    passwordHash: adminUser.passwordHash,
+    role: 'buyer',
+    industry: 'furniture',
+    location: 'Monastir',
+    createdAt: now(),
+  },
+  {
+    id: 'user_investor',
+    name: 'Green Invest Tounes',
+    email: 'invest@greeninvest.tn',
+    passwordHash: adminUser.passwordHash,
+    role: 'investor',
+    industry: 'finance',
+    location: 'Tunis',
+    createdAt: now(),
+  },
+]
+
+function seedListings(): Listing[] {
+  // إحداثيات واقعية للمناطق الصناعية
+  const sfaxPoudriere = { lat: 34.7550, lng: 10.7650 }
+  const sfaxThyna = { lat: 34.6833, lng: 10.7333 }
+  const sfaxAgareb = { lat: 34.7200, lng: 10.5300 }
+  const sfaxRouteGremda = { lat: 34.7600, lng: 10.7400 }
+  const sfaxSakietEzzit = { lat: 34.8000, lng: 10.7700 }
+  const sfaxRouteMahdia = { lat: 34.7650, lng: 10.7850 }
+  
+  const sousseZoneInd = { lat: 35.8100, lng: 10.6000 }
+  const monastirKsarHellal = { lat: 35.6400, lng: 10.8800 }
+  const tunisMegrine = { lat: 36.7600, lng: 10.2300 }
+  const gabesGhannouch = { lat: 33.9300, lng: 10.0900 }
+
+  return [
+    {
+      id: 'list_metal_1',
+      title: 'برادة حديد من ورشة تورناج (Copeaux d\'acier)',
+      materialId: 'mat_metal_cuts',
+      materialType: 'Copeaux de fer',
+      categoryId: 'metal',
+      industry: 'machining',
+      quantity: 4500,
+      unit: 'kg',
+      pricePerUnit: 0.850,
+      location: 'Sfax (Poudrière 1)',
+      lat: sfaxPoudriere.lat,
+      lng: sfaxPoudriere.lng,
+      availability: 'available',
+      urgency: 'high',
+      description: 'كمية كبيرة من برادة الحديد الصافية، خالية من الزيوت الكثيفة. متوفرة أسبوعيا من ورشة خراطة في البودرية. ممتازة لمعامل الصهر (Fonderie).',
+      photos: ['https://images.unsplash.com/photo-1518709766631-a6a7f45921c3?q=80&w=2070&auto=format&fit=crop'],
+      sellerId: 'user_pack_seller',
+      createdAt: now(),
+    },
+    {
+      id: 'list_organic_1',
+      title: 'فيتورة زيتون شايحة (Grignon d\'olive)',
+      materialId: 'mat_olive_pomace',
+      materialType: 'Grignon d\'olive',
+      categoryId: 'organic',
+      industry: 'agriculture',
+      quantity: 25,
+      unit: 'Tonne',
+      pricePerUnit: 120.000,
+      location: 'Sfax (Agareb)',
+      lat: sfaxAgareb.lat,
+      lng: sfaxAgareb.lng,
+      availability: 'available',
+      urgency: 'medium',
+      description: 'فيتورة شايحة من معصرة في عقارب، ممتازة كبديل للطاقة (Biomasse) لتسخين المداجن أو أفران الآجر.',
+      photos: ['https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRqxi_zkWX6Vp2zc_3ysCnW22AmCMBuu4lVdg&s'],
+      sellerId: 'user_pack_seller',
+      createdAt: now(),
+    },
+    {
+      id: 'list_organic_2',
+      title: 'قشور لوز صلبة للتدفئة (Coques d\'amandes)',
+      materialId: 'mat_almond_shell',
+      materialType: 'Coques d\'amandes',
+      categoryId: 'organic',
+      industry: 'food',
+      quantity: 12,
+      unit: 'Tonne',
+      pricePerUnit: 250.000,
+      location: 'Sfax (Route Gremda)',
+      lat: sfaxRouteGremda.lat,
+      lng: sfaxRouteGremda.lng,
+      availability: 'available',
+      urgency: 'low',
+      description: 'قشور لوز نظيفة جدا من مصنع حلويات وفواكه جافة. قوة حرارية عالية جدا، تصلح للـ Chaudières الصناعية.',
+      photos: ['https://images.unsplash.com/photo-1615135118744-8d9607ebcfa4?q=80&w=2070&auto=format&fit=crop'],
+      sellerId: 'user_pack_seller',
+      createdAt: now(),
+    },
+    {
+      id: 'list_wood_2',
+      title: 'باليتات لوح مكسرة (Palettes usagées)',
+      materialId: 'mat_wood_pallets',
+      materialType: 'Palettes cassées',
+      categoryId: 'wood',
+      industry: 'logistics',
+      quantity: 300,
+      unit: 'pièce',
+      pricePerUnit: 2.500,
+      location: 'Sfax (Zone Ind Thyna)',
+      lat: sfaxThyna.lat,
+      lng: sfaxThyna.lng,
+      availability: 'available',
+      urgency: 'high',
+      description: 'حوالي 300 باليت لوح (Palettes) متضررة من الشحن، للبيع كخشب إعادة تدوير أو لصناعة الأثاث الإيكولوجي.',
+      photos: ['https://s.alicdn.com/@sc04/kf/A1e01757905a54d85b11f134361580e71J/Wholesale-Epal-Pallet-Euro-EPAL-Wooden-Pallet-Euro-Wooden-Pallets-All-Sizes-Available-1200x1000-Euro-Pallet.jpg'],
+      sellerId: 'user_pack_seller',
+      createdAt: now(),
+    },
+    {
+      id: 'list_paper_1',
+      title: 'بالات كرذونة مضغوطة (Carton compacté)',
+      materialId: 'mat_cardboard',
+      materialType: 'Carton compacté',
+      categoryId: 'paper',
+      industry: 'retail',
+      quantity: 5000,
+      unit: 'kg',
+      pricePerUnit: 0.350,
+      location: 'Sfax (Route Mahdia)',
+      lat: sfaxRouteMahdia.lat,
+      lng: sfaxRouteMahdia.lng,
+      availability: 'available',
+      urgency: 'medium',
+      description: 'كرذونة فضلات تغليف مغازات كبرى (Supermarchés)، مكبوسة في بالات (Balles) وجاهزة للنقل لمعامل عجين الورق.',
+      photos: ['https://images.unsplash.com/photo-1603504825595-5d5ecbca6937?q=80&w=2070&auto=format&fit=crop'],
+      sellerId: 'user_pack_seller',
+      createdAt: now(),
+    },
+    {
+      id: 'list_plastic_2',
+      title: 'فضلات رولو ميكة (Film Plastique Étirable)',
+      materialId: 'mat_plastic_film',
+      materialType: 'Film Plastique',
+      categoryId: 'plastic',
+      industry: 'logistics',
+      quantity: 800,
+      unit: 'kg',
+      pricePerUnit: 0.600,
+      location: 'Sfax (Sakiet Ezzit)',
+      lat: sfaxSakietEzzit.lat,
+      lng: sfaxSakietEzzit.lng,
+      availability: 'available',
+      urgency: 'medium',
+      description: 'بقايا ميكة تغليف (Film étirable) شفافة ونظيفة من مستودع شحن. مثالية لشركات رسكلة البلاستيك المرن.',
+      photos: ['https://images.unsplash.com/photo-1620325867502-221ddb5faa5f?q=80&w=2070&auto=format&fit=crop'],
+      sellerId: 'user_pack_seller',
+      createdAt: now(),
+    },
+    {
+      id: 'list_oil_2',
+      title: 'زيت قلي مستعمل من مطاعم (Huile de friture)',
+      materialId: 'mat_cooking_oil',
+      materialType: 'Huile de friture',
+      categoryId: 'oil',
+      industry: 'restaurant',
+      quantity: 450,
+      unit: 'L',
+      pricePerUnit: 1.200,
+      location: 'Sfax (Centre Ville)',
+      lat: sfaxPoudriere.lat, 
+      lng: sfaxPoudriere.lng,
+      availability: 'available',
+      urgency: 'low',
+      description: 'زيت قلي (Huile végétale usagée) مجمع من 5 مطاعم في صفاقس، مصفى ومحفوظ في براميل 50 لتر. لصناعة الصابون أو البيوديزل.',
+      photos: ['https://images.unsplash.com/photo-1473448912268-2022ce9509d8?q=80&w=2070&auto=format&fit=crop'],
+      sellerId: 'user_pack_seller',
+      createdAt: now(),
+    },
+    {
+      id: 'list_pet_1',
+      title: 'دبابز ماء بلاستيك مفرزة (Bouteilles PET)',
+      materialId: 'mat_pet_scrap',
+      materialType: 'Plastique PET',
+      categoryId: 'plastic',
+      industry: 'packaging',
+      quantity: 1400,
+      unit: 'kg',
+      pricePerUnit: 0.950,
+      location: 'Sfax (Poudrière 2)',
+      lat: sfaxPoudriere.lat,
+      lng: sfaxPoudriere.lng,
+      availability: 'reserved',
+      urgency: 'medium',
+      description: 'دبابز ماء صافية مفرزة (بدون غطاء أو ملصق)، جاهزة للرحي لإنتاج ألياف البوليستر.',
+      photos: ['https://plastic-machines.org/wp-content/uploads/2023/09/PET-bottles.webp'],
+      sellerId: 'user_pack_seller',
+      createdAt: now(),
+    },
+    {
+      id: 'list_textile_1',
+      title: 'شراوط وبقايا قماش جينز (Denim Scraps)',
+      materialId: 'mat_textile_cut',
+      materialType: 'Chutes de Tissus',
+      categoryId: 'textile',
+      industry: 'textile',
+      quantity: 2100,
+      unit: 'kg',
+      pricePerUnit: 0.500,
+      location: 'Monastir (Ksar Hellal)',
+      lat: monastirKsarHellal.lat,
+      lng: monastirKsarHellal.lng,
+      availability: 'available',
+      urgency: 'high',
+      description: 'بقايا تفصيل قماش جينز 100% قطن من معمل تصدير. تصلح للرحي وإعادة الغزل (Filature) أو العزل الحراري.',
+      photos: ['https://images.unsplash.com/photo-1584370848010-d7fe6bc767ec?q=80&w=2070&auto=format&fit=crop'],
+      sellerId: 'user_pack_seller',
+      createdAt: now(),
+    },
+    {
+      id: 'list_wood_1',
+      title: 'غبرة ونشارة لوح صافية (Sciure de bois)',
+      materialId: 'mat_wood_dust',
+      materialType: 'Sciure de bois',
+      categoryId: 'wood',
+      industry: 'furniture',
+      quantity: 3200,
+      unit: 'kg',
+      pricePerUnit: 0.400,
+      location: 'Sousse (Zone Industrielle)',
+      lat: sousseZoneInd.lat,
+      lng: sousseZoneInd.lng,
+      availability: 'available',
+      urgency: 'medium',
+      description: 'نشارة خشب شايح من ورشة أثاث. خالية من الكولا (Colle)، ممتازة لمشاريع الفلاحة (الفرشة للدجاج) أو التدفئة.',
+      photos: ['https://images.unsplash.com/photo-1611077544766-302aeb7a7e8e?q=80&w=2070&auto=format&fit=crop'],
+      sellerId: 'user_pack_seller',
+      createdAt: now(),
+    },
+    {
+      id: 'list_metal_2',
+      title: 'كوابل نحاس قديمة للرسكلة (Câbles Cuivre)',
+      materialId: 'mat_copper',
+      materialType: 'Déchets de Cuivre',
+      categoryId: 'metal',
+      industry: 'electronics',
+      quantity: 150,
+      unit: 'kg',
+      pricePerUnit: 18.500,
+      location: 'Tunis (Mégrine)',
+      lat: tunisMegrine.lat,
+      lng: tunisMegrine.lng,
+      availability: 'available',
+      urgency: 'low',
+      description: 'بقايا كوابل كهربائية نحاسية غير مقشرة من مشروع بناء. فرصة ممتازة لشركات رسكلة المعادن الثمينة.',
+      photos: ['https://images.unsplash.com/photo-1558231908-012b186b4cf8?q=80&w=2070&auto=format&fit=crop'],
+      sellerId: 'user_pack_seller',
+      createdAt: now(),
+    },
+    {
+      id: 'list_oil_1',
+      title: 'زيوت تشحيم ماكينات (Huile Lubrifiante)',
+      materialId: 'mat_used_oil',
+      materialType: 'Huile Moteur Usagée',
+      categoryId: 'oil',
+      industry: 'chemical',
+      quantity: 1200,
+      unit: 'L',
+      pricePerUnit: 0.900,
+      location: 'Gabès (Ghannouch)',
+      lat: gabesGhannouch.lat,
+      lng: gabesGhannouch.lng,
+      availability: 'available',
+      urgency: 'high',
+      description: 'زيوت محركات وماكينات صناعية مستعملة. يتم جمعها بصفة دورية. معروضة لشركات إعادة التكرير (Raffinage).',
+      photos: ['https://images.unsplash.com/photo-1563820216738-4eebdd82b4ea?q=80&w=2070&auto=format&fit=crop'],
+      sellerId: 'user_pack_seller',
+      createdAt: now(),
+    }
+  ]
+}
+
+const seedProjects: Project[] = [
+  {
+    id: 'proj_1',
+    ownerId: 'user_wood_buyer',
+    name: 'مشروع تصنيع اللوح المضغوط الاقتصادي',
+    industry: 'furniture',
+    location: 'Monastir',
+    needs: ['wood', 'plastic'],
+    budgetLevel: 'medium',
+    createdAt: now(),
+  },
+]
+
+function createSeedStore(): DataStore {
+  const listings = seedListings()
+  const projects = seedProjects
+  const matches: Match[] = listings.map((listing) => ({
+    id: id('match'),
+    listingId: listing.id,
+    projectId: projects[0].id,
+    buyerId: projects[0].ownerId,
+    score: computeMatchScore({ listing, project: projects[0] }),
+    createdAt: now(),
+  }))
+
+  return {
+    users: seedUsers,
+    categories: baseCategories,
+    materials: baseMaterials,
+    listings,
+    projects,
+    matches,
+    notifications: [
+      {
+        id: id('notif'),
+        userId: 'user_wood_buyer',
+        type: 'new-match',
+        title: 'فرصة مطابقة جديدة لمشروعك',
+        message: 'نشارة لوح من سوسة تنجم تعوض المواد الأولية المستوردة في مشروع اللوح المضغوط متاعك.',
+        read: false,
+        createdAt: now(),
+      },
+    ],
+    savedSearches: [
+      {
+        id: id('saved'),
+        userId: 'user_wood_buyer',
+        name: 'بلاستيك رخيص للرسكلة',
+        filters: { materialType: 'Plastique PET', maxPrice: 1.1 },
+        createdAt: now(),
+      },
+    ],
+    messages: [],
+    reports: [],
+  }
+}
+
+declare global {
+  var __ecobridge_store__: DataStore | undefined
+  var __ecobridge_store_version__: string | undefined
+}
+
+const STORE_VERSION = '2026-04-19-seed-v3-ai-impact'
+const shouldRefreshStore = !global.__ecobridge_store__ || global.__ecobridge_store_version__ !== STORE_VERSION
+
+const store: DataStore = shouldRefreshStore ? createSeedStore() : global.__ecobridge_store__!
+
+if (shouldRefreshStore) {
+  global.__ecobridge_store__ = store
+  global.__ecobridge_store_version__ = STORE_VERSION
+}
+
+export function dbGetUsers() {
+  return store.users
+}
+
+export function dbFindUserByEmail(email: string) {
+  return store.users.find((user) => user.email.toLowerCase() === email.toLowerCase())
+}
+
+export function dbFindUserById(idValue: string) {
+  return store.users.find((user) => user.id === idValue)
+}
+
+export function dbCreateUser(input: {
+  name: string
+  email: string
+  passwordHash: string
+  role: UserRole
+  industry: string
+  location: string
+}) {
+  const user: User = {
+    id: id('user'),
+    ...input,
+    createdAt: now(),
+  }
+
+  store.users.unshift(user)
+  return user
+}
+
+export function dbGetCategories() {
+  return store.categories
+}
+
+export function dbGetMaterials() {
+  return store.materials
+}
+
+export function dbGetListings(filters: ListingFilters = {}) {
+  return store.listings.filter((listing) => {
+    if (filters.materialType && !listing.materialType.toLowerCase().includes(filters.materialType.toLowerCase())) return false
+    if (filters.industry && listing.industry.toLowerCase() !== filters.industry.toLowerCase()) return false
+    if (filters.location && !listing.location.toLowerCase().includes(filters.location.toLowerCase())) return false
+    if (typeof filters.minPrice === 'number' && listing.pricePerUnit < filters.minPrice) return false
+    if (typeof filters.maxPrice === 'number' && listing.pricePerUnit > filters.maxPrice) return false
+    if (typeof filters.minQuantity === 'number' && listing.quantity < filters.minQuantity) return false
+    if (filters.availability && listing.availability !== filters.availability) return false
+    return true
+  })
+}
+
+export function dbGetListingById(idValue: string) {
+  return store.listings.find((listing) => listing.id === idValue)
+}
+
+export function dbCreateListing(input: Omit<Listing, 'id' | 'createdAt'>) {
+  const listing: Listing = {
+    id: id('list'),
+    ...input,
+    impactEstimate: input.impactEstimate ?? calculateListingImpact(input),
+    createdAt: now(),
+  }
+
+  store.listings.unshift(listing)
+
+  for (const savedSearch of store.savedSearches) {
+    const matchesSearch = dbGetListings(savedSearch.filters).some((item) => item.id === listing.id)
+    if (!matchesSearch) continue
+
+    store.notifications.unshift({
+      id: id('notif'),
+      userId: savedSearch.userId,
+      type: 'new-listing',
+      title: 'إعلان جديد يطابق بحثك المحفوظ',
+      message: `${listing.title} متوفر حالياً في جهة ${listing.location}.`,
+      read: false,
+      createdAt: now(),
+    })
+  }
+
+  return listing
+}
+
+export function dbUpdateListing(idValue: string, input: Partial<Listing>) {
+  const index = store.listings.findIndex((listing) => listing.id === idValue)
+  if (index < 0) return null
+
+  store.listings[index] = { ...store.listings[index], ...input }
+  return store.listings[index]
+}
+
+export function dbDeleteListing(idValue: string) {
+  const before = store.listings.length
+  store.listings = store.listings.filter((listing) => listing.id !== idValue)
+  return store.listings.length < before
+}
+
+export function dbCreateProject(input: Omit<Project, 'id' | 'createdAt'>) {
+  const project: Project = {
+    id: id('proj'),
+    ...input,
+    createdAt: now(),
+  }
+
+  store.projects.unshift(project)
+  return project
+}
+
+export function dbGetProjectsByUser(userId: string) {
+  return store.projects.filter((project) => project.ownerId === userId)
+}
+
+export function dbGetMatchesForUser(userId: string) {
+  const ownProjects = store.projects.filter((project) => project.ownerId === userId).map((project) => project.id)
+  return store.matches
+    .filter((match) => ownProjects.includes(match.projectId) || match.buyerId === userId)
+    .sort((a, b) => b.score.total - a.score.total)
+}
+
+export function dbGenerateMatchesForProject(project: Project) {
+  const generated = store.listings.map((listing) => ({
+    id: id('match'),
+    listingId: listing.id,
+    projectId: project.id,
+    buyerId: project.ownerId,
+    score: computeMatchScore({ listing, project }),
+    createdAt: now(),
+  }))
+
+  store.matches.unshift(...generated)
+
+  for (const match of generated.slice(0, 8)) {
+    const listing = dbGetListingById(match.listingId)
+    if (!listing) continue
+
+    store.notifications.unshift(
+      {
+        id: id('notif'),
+        userId: project.ownerId,
+        type: 'new-match',
+        title: 'تم العثور على فرصة مطابقة',
+        message: `الإعلان "${listing.title}" تحصل على نسبة توافق ${match.score.total}/100 مع مشروعك.` ,
+        read: false,
+        createdAt: now(),
+      },
+      {
+        id: id('notif'),
+        userId: listing.sellerId,
+        type: 'interest',
+        title: 'مستثمر مهتم بفواضلك',
+        message: `مشروع من قطاع ${project.industry} قد يحتاج إلى "${listing.title}".`,
+        read: false,
+        createdAt: now(),
+      },
+    )
+  }
+
+  return generated.sort((a, b) => b.score.total - a.score.total)
+}
+
+export function dbGetNotifications(userId: string) {
+  return store.notifications.filter((notification) => notification.userId === userId)
+}
+
+export function dbMarkNotificationRead(idValue: string) {
+  const item = store.notifications.find((notification) => notification.id === idValue)
+  if (!item) return null
+  item.read = true
+  return item
+}
+
+export function dbCreateSavedSearch(input: Omit<SavedSearch, 'id' | 'createdAt'>) {
+  const search: SavedSearch = {
+    id: id('saved'),
+    ...input,
+    createdAt: now(),
+  }
+
+  store.savedSearches.unshift(search)
+  return search
+}
+
+export function dbGetDashboardStats(userId: string): DashboardStats {
+  const userMatches = dbGetMatchesForUser(userId)
+  const userAlerts = dbGetNotifications(userId)
+  const userSaved = store.savedSearches.filter((search) => search.userId === userId)
+
+  const topListings = userMatches.slice(0, 5).map((match) => dbGetListingById(match.listingId)).filter(Boolean) as Listing[]
+
+  const portfolioImpact = calculatePortfolioImpact(topListings)
+
+  return {
+    totalListings: store.listings.length,
+    matchedOpportunities: userMatches.length,
+    savedSearches: userSaved.length,
+    alerts: userAlerts.filter((alert) => !alert.read).length,
+    ecoImpact: {
+      wasteReusedKg: portfolioImpact.wasteReusedKg,
+      moneySavedTnd: Math.round(portfolioImpact.moneySavedTnd),
+      co2ReductionKg: portfolioImpact.co2ReductionKg,
+      storageAvoidedKg: portfolioImpact.storageAvoidedKg,
+    },
+  }
+}
+
+export function dbGetAdminSummary() {
+  return {
+    users: store.users,
+    listings: store.listings,
+    categories: store.categories,
+    reports: store.reports,
+    notifications: store.notifications,
+  }
+}

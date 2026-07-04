@@ -1,0 +1,127 @@
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800&family=Manrope:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap');
+@import 'leaflet/dist/leaflet.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --eco-bg: #f5fbf7;
+  --eco-text: #133827;
+  --eco-muted: #527768;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Manrope', sans-serif;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(39, 188, 121, 0.16) 0%, rgba(39, 188, 121, 0) 40%),
+    radial-gradient(circle at 100% 20%, rgba(19, 130, 89, 0.12) 0%, rgba(19, 130, 89, 0) 45%),
+    var(--eco-bg);
+  color: var(--eco-text);
+}
+
+html[dir='rtl'] .leaflet-control-container {
+  direction: ltr;
+}
+
+.eco-map {
+  height: 360px;
+  width: 100%;
+  background: linear-gradient(145deg, #f3faf6 0%, #ebf7f0 100%);
+}
+
+.eco-map-grid {
+  min-height: 360px;
+}
+
+.eco-map-pin {
+  position: relative;
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #138259;
+  border: 2px solid #ffffff;
+  box-shadow: 0 10px 24px rgba(19, 130, 89, 0.36);
+}
+
+.eco-map-pin::after {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.eco-map-pin-active {
+  width: 22px;
+  height: 22px;
+  background: #0a5a3f;
+  box-shadow: 0 14px 34px rgba(10, 90, 63, 0.45);
+}
+
+.eco-map-popup {
+  min-width: 180px;
+  color: #1f4d3a;
+  font-family: 'Manrope', sans-serif;
+}
+
+.eco-map-popup-title {
+  margin: 0 0 6px;
+  font-weight: 800;
+  color: #113b2b;
+}
+
+.eco-map-popup p {
+  margin: 4px 0;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.eco-map-list {
+  max-height: 360px;
+  overflow: auto;
+  padding-right: 2px;
+  display: grid;
+  gap: 10px;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+@layer components {
+  .eco-container {
+    @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
+  }
+
+  .eco-card {
+    @apply rounded-2xl border border-eco-100 bg-white/90 p-5 shadow-[0_16px_36px_rgba(14,68,46,0.10)] backdrop-blur;
+  }
+
+  .eco-title {
+    @apply font-display text-3xl font-extrabold tracking-tight text-eco-900 sm:text-4xl;
+  }
+
+  .eco-subtitle {
+    @apply mt-2 text-sm font-medium text-eco-700 sm:text-base;
+  }
+
+  .eco-button {
+    @apply inline-flex items-center justify-center rounded-xl bg-eco-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-eco-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-eco-300 disabled:opacity-40;
+  }
+
+  .eco-button-secondary {
+    @apply inline-flex items-center justify-center rounded-xl border border-eco-200 bg-white px-4 py-2 text-sm font-bold text-eco-800 transition hover:bg-eco-50;
+  }
+
+  .eco-badge {
+    @apply inline-flex items-center rounded-full bg-eco-100 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-eco-700;
+  }
+}
